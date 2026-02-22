@@ -75,6 +75,14 @@ export interface ServerConfig {
   version: string;
 }
 
+// Schema for a single fallback provider entry
+export const ProviderSchema = z.object({
+  routerBaseUrl: z.string().url().optional(),
+  model: z.string().optional(),
+});
+
+export type ProviderEntry = z.infer<typeof ProviderSchema>;
+
 // Zod schemas for tool arguments
 export const ClaudeToolSchema = z.object({
   prompt: z.string(),
@@ -93,6 +101,11 @@ export const ClaudeToolSchema = z.object({
   outputFormat: z.enum(['text', 'json', 'stream-json']).optional(),
   maxTurns: z.number().int().positive().optional(),
   routerBaseUrl: z.string().url().optional(),
+  fallbackProviders: z
+    .array(ProviderSchema)
+    .max(5)
+    .optional()
+    .describe('Ordered list of fallback providers to try if the primary call fails'),
 });
 
 // Review tool schema
