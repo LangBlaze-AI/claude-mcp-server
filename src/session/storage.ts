@@ -13,7 +13,7 @@ export interface SessionData {
   createdAt: Date;
   lastAccessedAt: Date;
   turns: ConversationTurn[];
-  codexConversationId?: string;
+  claudeSessionId?: string;
 }
 
 export interface SessionStorage {
@@ -25,8 +25,8 @@ export interface SessionStorage {
   listSessions(): SessionData[];
   addTurn(sessionId: string, turn: ConversationTurn): void;
   resetSession(sessionId: string): void;
-  setCodexConversationId(sessionId: string, conversationId: string): void;
-  getCodexConversationId(sessionId: string): string | undefined;
+  setClaudeSessionId(sessionId: string, claudeId: string): void;
+  getClaudeSessionId(sessionId: string): string | undefined;
 }
 
 export class InMemorySessionStorage implements SessionStorage {
@@ -62,7 +62,7 @@ export class InMemorySessionStorage implements SessionStorage {
       !this.sessionIdPattern.test(sessionId)
     ) {
       throw new ValidationError(
-        TOOLS.CODEX,
+        TOOLS.CLAUDE,
         'Session ID must be 1-256 characters and contain only letters, numbers, hyphens, and underscores'
       );
     }
@@ -127,22 +127,22 @@ export class InMemorySessionStorage implements SessionStorage {
     const session = this.sessions.get(sessionId);
     if (session) {
       session.turns = [];
-      session.codexConversationId = undefined;
+      session.claudeSessionId = undefined;
       session.lastAccessedAt = new Date();
     }
   }
 
-  setCodexConversationId(sessionId: string, conversationId: string): void {
+  setClaudeSessionId(sessionId: string, claudeId: string): void {
     const session = this.sessions.get(sessionId);
     if (session) {
-      session.codexConversationId = conversationId;
+      session.claudeSessionId = claudeId;
       session.lastAccessedAt = new Date();
     }
   }
 
-  getCodexConversationId(sessionId: string): string | undefined {
+  getClaudeSessionId(sessionId: string): string | undefined {
     const session = this.sessions.get(sessionId);
-    return session?.codexConversationId;
+    return session?.claudeSessionId;
   }
 
   private cleanupExpiredSessions(): void {

@@ -1,13 +1,13 @@
 import {
   TOOLS,
-  DEFAULT_CODEX_MODEL,
-  CODEX_DEFAULT_MODEL_ENV_VAR,
+  DEFAULT_CLAUDE_MODEL,
+  CLAUDE_DEFAULT_MODEL_ENV_VAR,
   type ToolResult,
   type ToolHandlerContext,
-  type CodexToolArgs,
+  type ClaudeToolArgs,
   type ReviewToolArgs,
   type PingToolArgs,
-  CodexToolSchema,
+  ClaudeToolSchema,
   ReviewToolSchema,
   PingToolSchema,
   HelpToolSchema,
@@ -33,7 +33,7 @@ const isStructuredContentEnabled = (): boolean => {
   return ['1', 'true', 'yes', 'on'].includes(raw.toLowerCase());
 };
 
-export class CodexToolHandler {
+export class ClaudeToolHandler {
   constructor(private sessionStorage: SessionStorage) {}
 
   async execute(
@@ -46,19 +46,20 @@ export class CodexToolHandler {
         sessionId,
         resetSession,
         model,
-        reasoningEffort,
-        sandbox,
-        fullAuto,
         workingDirectory,
-        callbackUri,
-      }: CodexToolArgs = CodexToolSchema.parse(args);
+        allowedTools,
+        dangerouslySkipPermissions,
+        outputFormat,
+        maxTurns,
+        routerBaseUrl,
+      }: ClaudeToolArgs = ClaudeToolSchema.parse(args);
 
       let activeSessionId = sessionId;
       let enhancedPrompt = prompt;
 
       // Only work with sessions if explicitly requested
       let useResume = false;
-      let codexConversationId: string | undefined;
+      let claudeSessionId: string | undefined;
 
       if (sessionId) {
         this.sessionStorage.ensureSession(sessionId);
@@ -66,12 +67,12 @@ export class CodexToolHandler {
           this.sessionStorage.resetSession(sessionId);
         }
 
-        codexConversationId =
-          this.sessionStorage.getCodexConversationId(sessionId);
-        if (codexConversationId) {
+        claudeSessionId =
+          this.sessionStorage.getClaudeSessionId(sessionId);
+        if (claudeSessionId) {
           useResume = true;
         } else {
-          // Fallback to manual context building if no codex conversation ID
+          // Fallback to manual context building if no claude session ID
           const session = this.sessionStorage.getSession(sessionId);
           if (
             session &&
@@ -83,76 +84,58 @@ export class CodexToolHandler {
         }
       }
 
-      // Build command arguments with v0.75.0+ features
+      // Build command arguments
       const selectedModel =
         model ||
-        process.env[CODEX_DEFAULT_MODEL_ENV_VAR] ||
-        DEFAULT_CODEX_MODEL;
-
-      const effectiveCallbackUri =
-        callbackUri || process.env.CODEX_MCP_CALLBACK_URI;
+        process.env[CLAUDE_DEFAULT_MODEL_ENV_VAR] ||
+        DEFAULT_CLAUDE_MODEL;
 
       let cmdArgs: string[];
 
-      if (useResume && codexConversationId) {
-        // Resume mode: codex exec resume has limited flags
-        // All exec options (--skip-git-repo-check, -c) must come BEFORE 'resume' subcommand
-        cmdArgs = ['exec', '--skip-git-repo-check'];
-
-        // Model must be set via -c config in resume mode (before subcommand)
-        cmdArgs.push('-c', `model="${selectedModel}"`);
-
-        // Reasoning effort via config (before subcommand)
-        if (reasoningEffort) {
-          cmdArgs.push('-c', `model_reasoning_effort="${reasoningEffort}"`);
+      if (useResume && claudeSessionId) {
+        // Resume mode: use --resume flag
+        cmdArgs = ['-p', enhancedPrompt, '--resume', claudeSessionId, '--model', selectedModel];
+        if (outputFormat) {
+          cmdArgs.push('--output-format', outputFormat);
+        } else {
+          cmdArgs.push('--output-format', 'json');
         }
-
-        // Add resume subcommand with conversation ID and prompt
-        cmdArgs.push('resume', codexConversationId, enhancedPrompt);
-      } else {
-        // Exec mode: supports full set of flags
-        cmdArgs = ['exec'];
-
-        // Add model parameter
-        cmdArgs.push('--model', selectedModel);
-
-        // Add reasoning effort via config parameter (quoted for consistency)
-        if (reasoningEffort) {
-          cmdArgs.push('-c', `model_reasoning_effort="${reasoningEffort}"`);
-        }
-
-        // Add sandbox mode (v0.75.0+)
-        if (sandbox) {
-          cmdArgs.push('--sandbox', sandbox);
-        }
-
-        // Add full-auto mode (v0.75.0+)
-        if (fullAuto) {
-          cmdArgs.push('--full-auto');
-        }
-
-        // Add working directory (v0.75.0+)
         if (workingDirectory) {
-          cmdArgs.push('-C', workingDirectory);
+          cmdArgs.push('--cwd', workingDirectory);
         }
-
-        // Skip git repo check for v0.50.0+
-        cmdArgs.push('--skip-git-repo-check');
-
-        cmdArgs.push(enhancedPrompt);
+      } else {
+        // New session mode
+        cmdArgs = ['-p', enhancedPrompt, '--model', selectedModel];
+        if (outputFormat) {
+          cmdArgs.push('--output-format', outputFormat);
+        } else {
+          cmdArgs.push('--output-format', 'json');
+        }
+        if (maxTurns) {
+          cmdArgs.push('--max-turns', String(maxTurns));
+        }
+        if (dangerouslySkipPermissions) {
+          cmdArgs.push('--dangerously-skip-permissions');
+        }
+        if (allowedTools) {
+          cmdArgs.push('--allowedTools', allowedTools);
+        }
+        if (workingDirectory) {
+          cmdArgs.push('--cwd', workingDirectory);
+        }
       }
 
       // Send initial progress notification
-      await context.sendProgress('Starting Codex execution...', 0);
+      await context.sendProgress('Starting Claude execution...', 0);
 
       // Use streaming execution if progress is enabled
       const useStreaming = !!context.progressToken;
-      const envOverride = effectiveCallbackUri
-        ? { CODEX_MCP_CALLBACK_URI: effectiveCallbackUri }
+      const envOverride = routerBaseUrl
+        ? { ANTHROPIC_BASE_URL: routerBaseUrl }
         : undefined;
 
       const result = useStreaming
-        ? await executeCommandStreaming('codex', cmdArgs, {
+        ? await executeCommandStreaming('claude', cmdArgs, {
             onProgress: (message) => {
               // Send progress notification for each chunk of output
               context.sendProgress(message);
@@ -160,32 +143,27 @@ export class CodexToolHandler {
             envOverride,
           })
         : envOverride
-          ? await executeCommand('codex', cmdArgs, envOverride)
-          : await executeCommand('codex', cmdArgs);
+          ? await executeCommand('claude', cmdArgs, envOverride)
+          : await executeCommand('claude', cmdArgs);
 
-      // Codex CLI may output to stderr, so check both
-      const response = result.stdout || result.stderr || 'No output from Codex';
-
-      // Extract conversation/session ID from new conversations for future resume
-      // Codex CLI outputs have varied between "session id" and "conversation id"
-      if (activeSessionId && !useResume) {
-        const conversationIdMatch = result.stderr?.match(
-          /(conversation|session)\s*id\s*:\s*([a-zA-Z0-9-]+)/i
-        );
-        if (conversationIdMatch) {
-          this.sessionStorage.setCodexConversationId(
-            activeSessionId,
-            conversationIdMatch[2]
-          );
-        }
+      // Parse JSON output from claude --output-format json
+      let response: string;
+      let extractedSessionId: string | undefined;
+      try {
+        const parsed = JSON.parse(result.stdout);
+        response = parsed.result ?? result.stdout;
+        extractedSessionId = parsed.session_id;
+      } catch {
+        response = result.stdout || result.stderr || 'No output from Claude';
       }
 
-      const combinedOutput = `${result.stderr || ''}
-${result.stdout || ''}`.trim();
-      const threadIdMatch = combinedOutput.match(
-        /thread\s*id\s*:\s*([a-zA-Z0-9_-]+)/i
-      );
-      const threadId = threadIdMatch ? threadIdMatch[1] : undefined;
+      // Store session ID from new conversations for future resume
+      if (activeSessionId && !useResume && extractedSessionId) {
+        this.sessionStorage.setClaudeSessionId(
+          activeSessionId,
+          extractedSessionId
+        );
+      }
 
       // Save turn only if using a session
       if (activeSessionId) {
@@ -201,10 +179,8 @@ ${result.stdout || ''}`.trim();
       // - content[0]._meta: For Claude Code compatibility (avoids structuredContent bug)
       // - structuredContent: For other MCP clients that properly support it
       const metadata: Record<string, unknown> = {
-        ...(threadId && { threadId }),
         ...(selectedModel && { model: selectedModel }),
         ...(activeSessionId && { sessionId: activeSessionId }),
-        ...(effectiveCallbackUri && { callbackUri: effectiveCallbackUri }),
       };
 
       return {
@@ -225,11 +201,11 @@ ${result.stdout || ''}`.trim();
         throw error;
       }
       if (error instanceof ZodError) {
-        throw new ValidationError(TOOLS.CODEX, error.message);
+        throw new ValidationError(TOOLS.CLAUDE, error.message);
       }
       throw new ToolExecutionError(
-        TOOLS.CODEX,
-        'Failed to execute codex command',
+        TOOLS.CLAUDE,
+        'Failed to execute claude command',
         error
       );
     }
@@ -298,7 +274,7 @@ export class HelpToolHandler {
     try {
       HelpToolSchema.parse(args);
 
-      const result = await executeCommand('codex', ['--help']);
+      const result = await executeCommand('claude', ['--help']);
 
       return {
         content: [
@@ -386,43 +362,26 @@ export class ReviewToolHandler {
         );
       }
 
-      // Build command arguments for codex review
-      const cmdArgs: string[] = [];
-
-      if (workingDirectory) {
-        cmdArgs.push('-C', workingDirectory);
-      }
-
-      // Add model parameter via config
+      // Build review prompt from context parameters
       const selectedModel =
         model ||
-        process.env[CODEX_DEFAULT_MODEL_ENV_VAR] ||
-        DEFAULT_CODEX_MODEL;
-      cmdArgs.push('-c', `model="${selectedModel}"`);
+        process.env[CLAUDE_DEFAULT_MODEL_ENV_VAR] ||
+        DEFAULT_CLAUDE_MODEL;
 
-      cmdArgs.push('review');
+      const reviewContext: string[] = [];
+      if (uncommitted) reviewContext.push('Review staged, unstaged, and untracked changes (working tree diff).');
+      if (base) reviewContext.push(`Review changes against base branch: ${base}.`);
+      if (commit) reviewContext.push(`Review changes introduced by commit: ${commit}.`);
+      if (title) reviewContext.push(`Review title: ${title}.`);
 
-      // Add review-specific flags
-      if (uncommitted) {
-        cmdArgs.push('--uncommitted');
-      }
+      const reviewPrompt = prompt
+        ? `${reviewContext.join(' ')} ${prompt}`
+        : reviewContext.length > 0
+          ? reviewContext.join(' ') + ' Please provide a detailed code review.'
+          : 'Please review the current code changes and provide feedback.';
 
-      if (base) {
-        cmdArgs.push('--base', base);
-      }
-
-      if (commit) {
-        cmdArgs.push('--commit', commit);
-      }
-
-      if (title) {
-        cmdArgs.push('--title', title);
-      }
-
-      // Add custom review instructions if provided
-      if (prompt) {
-        cmdArgs.push(prompt);
-      }
+      const cmdArgs = ['-p', reviewPrompt, '--model', selectedModel, '--output-format', 'json'];
+      if (workingDirectory) cmdArgs.push('--cwd', workingDirectory);
 
       // Send initial progress notification
       await context.sendProgress('Starting code review...', 0);
@@ -430,16 +389,21 @@ export class ReviewToolHandler {
       // Use streaming execution if progress is enabled
       const useStreaming = !!context.progressToken;
       const result = useStreaming
-        ? await executeCommandStreaming('codex', cmdArgs, {
+        ? await executeCommandStreaming('claude', cmdArgs, {
             onProgress: (message) => {
               context.sendProgress(message);
             },
           })
-        : await executeCommand('codex', cmdArgs);
+        : await executeCommand('claude', cmdArgs);
 
-      // Codex CLI outputs to stderr, so check both stdout and stderr
-      const response =
-        result.stdout || result.stderr || 'No review output from Codex';
+      // Parse JSON output from claude --output-format json
+      let response: string;
+      try {
+        const parsed = JSON.parse(result.stdout);
+        response = parsed.result ?? result.stdout;
+      } catch {
+        response = result.stdout || result.stderr || 'No review output from Claude';
+      }
 
       // Prepare metadata for dual approach:
       // - content[0]._meta: For Claude Code compatibility (avoids structuredContent bug)
@@ -469,7 +433,7 @@ export class ReviewToolHandler {
       }
       throw new ToolExecutionError(
         TOOLS.REVIEW,
-        'Failed to execute code review',
+        'Failed to execute claude review',
         error
       );
     }
@@ -480,7 +444,7 @@ export class ReviewToolHandler {
 const sessionStorage = new InMemorySessionStorage();
 
 export const toolHandlers = {
-  [TOOLS.CODEX]: new CodexToolHandler(sessionStorage),
+  [TOOLS.CLAUDE]: new ClaudeToolHandler(sessionStorage),
   [TOOLS.REVIEW]: new ReviewToolHandler(),
   [TOOLS.PING]: new PingToolHandler(),
   [TOOLS.HELP]: new HelpToolHandler(),
