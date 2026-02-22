@@ -1,10 +1,10 @@
 {
-  "name": "codex-mcp-server",
+  "name": "claude-mcp-server",
   "version": "1.4.0",
-  "description": "MCP server wrapper for OpenAI Codex CLI",
+  "description": "MCP server wrapper for Claude Code CLI",
   "main": "dist/index.js",
   "bin": {
-    "codex-mcp-server": "dist/index.js"
+    "claude-mcp-server": "dist/index.js"
   },
   "files": [
     "dist"
@@ -31,8 +31,8 @@
   },
   "keywords": [
     "mcp",
-    "codex",
-    "openai",
+    "claude-code",
+    "anthropic",
     "claude",
     "ai",
     "cli"

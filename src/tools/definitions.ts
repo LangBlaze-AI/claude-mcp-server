@@ -2,8 +2,8 @@ import { TOOLS, getModelDescription, type ToolDefinition } from '../types.js';
 
 export const toolDefinitions: ToolDefinition[] = [
   {
-    name: TOOLS.CODEX,
-    description: 'Execute Codex CLI in non-interactive mode for AI assistance',
+    name: TOOLS.CLAUDE,
+    description: 'Execute Claude Code CLI in non-interactive mode for AI assistance',
     inputSchema: {
       type: 'object',
       properties: {
@@ -14,7 +14,7 @@ export const toolDefinitions: ToolDefinition[] = [
         sessionId: {
           type: 'string',
           description:
-            'Optional session ID for conversational context. Note: when resuming a session, sandbox/fullAuto/workingDirectory parameters are not applied (CLI limitation)',
+            'Optional session ID for conversational context. When resuming a session, allowedTools and workingDirectory are applied normally.',
         },
         resetSession: {
           type: 'boolean',
@@ -23,34 +23,35 @@ export const toolDefinitions: ToolDefinition[] = [
         },
         model: {
           type: 'string',
-          description: getModelDescription('codex'),
-        },
-        reasoningEffort: {
-          type: 'string',
-          enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
-          description:
-            'Control reasoning depth (none < minimal < low < medium < high < xhigh)',
-        },
-        sandbox: {
-          type: 'string',
-          enum: ['read-only', 'workspace-write', 'danger-full-access'],
-          description:
-            'Sandbox policy for shell command execution. read-only: no writes allowed, workspace-write: writes only in workspace, danger-full-access: full system access (dangerous)',
-        },
-        fullAuto: {
-          type: 'boolean',
-          description:
-            'Enable full-auto mode: sandboxed automatic execution without approval prompts (equivalent to -a on-request --sandbox workspace-write)',
+          description: getModelDescription('claude'),
         },
         workingDirectory: {
           type: 'string',
           description:
-            'Working directory for the agent to use as its root (passed via -C flag)',
+            'Working directory for the agent to use as its root (passed via --cwd flag)',
         },
-        callbackUri: {
+        allowedTools: {
           type: 'string',
           description:
-            'Static MCP callback URI to pass to Codex via environment (if provided)',
+            'Comma-separated list of tools to allow (e.g. "Bash,Read,Write"). Passed via --allowedTools flag.',
+        },
+        dangerouslySkipPermissions: {
+          type: 'boolean',
+          description: 'Skip permission prompts. Use with caution.',
+        },
+        outputFormat: {
+          type: 'string',
+          enum: ['text', 'json', 'stream-json'],
+          description: 'Output format for the claude CLI response (default: json)',
+        },
+        maxTurns: {
+          type: 'number',
+          description: 'Maximum number of agentic turns before stopping',
+        },
+        routerBaseUrl: {
+          type: 'string',
+          description:
+            'Override ANTHROPIC_BASE_URL for this call (e.g. for claude-code-router)',
         },
       },
       required: ['prompt'],
@@ -58,11 +59,11 @@ export const toolDefinitions: ToolDefinition[] = [
     outputSchema: {
       type: 'object',
       properties: {
-        threadId: { type: 'string' },
+        sessionId: { type: 'string' },
       },
     },
     annotations: {
-      title: 'Execute Codex CLI',
+      title: 'Execute Claude Code CLI',
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: false,
@@ -72,7 +73,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: TOOLS.REVIEW,
     description:
-      'Run a code review against the current repository using Codex CLI',
+      'Run a code review using Claude Code CLI by passing review context as a prompt',
     inputSchema: {
       type: 'object',
       properties: {
@@ -106,7 +107,7 @@ export const toolDefinitions: ToolDefinition[] = [
         workingDirectory: {
           type: 'string',
           description:
-            'Working directory to run the review in (passed via -C as a global Codex option)',
+            'Working directory to run the review in (passed via --cwd flag)',
         },
       },
       required: [],
@@ -142,7 +143,7 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: TOOLS.HELP,
-    description: 'Get Codex CLI help information',
+    description: 'Get Claude Code CLI help information',
     inputSchema: {
       type: 'object',
       properties: {},
