@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 // Tool constants
 export const TOOLS = {
-  CODEX: 'codex',
+  CLAUDE: 'claude',
   REVIEW: 'review',
   PING: 'ping',
   HELP: 'help',
@@ -11,30 +11,24 @@ export const TOOLS = {
 
 export type ToolName = typeof TOOLS[keyof typeof TOOLS];
 
-// Codex model constants
-export const DEFAULT_CODEX_MODEL = 'gpt-5.3-codex' as const;
-export const CODEX_DEFAULT_MODEL_ENV_VAR = 'CODEX_DEFAULT_MODEL' as const;
+// Claude model constants
+export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6' as const;
+export const CLAUDE_DEFAULT_MODEL_ENV_VAR = 'CLAUDE_DEFAULT_MODEL' as const;
 
 // Available model options (for documentation/reference)
-export const AVAILABLE_CODEX_MODELS = [
-  'gpt-5.3-codex',
-  'gpt-5.2-codex',
-  'gpt-5.1-codex',
-  'gpt-5.1-codex-max',
-  'gpt-5-codex',
-  'gpt-4o',
-  'gpt-4',
-  'o3',
-  'o4-mini',
+export const AVAILABLE_CLAUDE_MODELS = [
+  'claude-sonnet-4-6',
+  'claude-opus-4-6',
+  'claude-haiku-4-5-20251001',
 ] as const;
 
 // Helper function to generate model description
-export const getModelDescription = (toolType: 'codex' | 'review') => {
-  const modelList = AVAILABLE_CODEX_MODELS.join(', ');
-  if (toolType === 'codex') {
-    return `Specify which model to use (defaults to ${DEFAULT_CODEX_MODEL}). Options: ${modelList}`;
+export const getModelDescription = (toolType: 'claude' | 'review') => {
+  const modelList = AVAILABLE_CLAUDE_MODELS.join(', ');
+  if (toolType === 'claude') {
+    return `Specify which model to use (defaults to ${DEFAULT_CLAUDE_MODEL}). Options: ${modelList}`;
   }
-  return `Specify which model to use for the review (defaults to ${DEFAULT_CODEX_MODEL})`;
+  return `Specify which model to use for the review (defaults to ${DEFAULT_CLAUDE_MODEL})`;
 };
 
 // Tool annotations for MCP 2025-11-25 spec
@@ -81,15 +75,8 @@ export interface ServerConfig {
   version: string;
 }
 
-// Sandbox mode enum
-export const SandboxMode = z.enum([
-  'read-only',
-  'workspace-write',
-  'danger-full-access',
-]);
-
 // Zod schemas for tool arguments
-export const CodexToolSchema = z.object({
+export const ClaudeToolSchema = z.object({
   prompt: z.string(),
   sessionId: z
     .string()
@@ -100,11 +87,12 @@ export const CodexToolSchema = z.object({
     .optional(),
   resetSession: z.boolean().optional(),
   model: z.string().optional(),
-  reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
-  sandbox: SandboxMode.optional(),
-  fullAuto: z.boolean().optional(),
   workingDirectory: z.string().optional(),
-  callbackUri: z.string().optional(),
+  allowedTools: z.string().optional(),
+  dangerouslySkipPermissions: z.boolean().optional(),
+  outputFormat: z.enum(['text', 'json', 'stream-json']).optional(),
+  maxTurns: z.number().int().positive().optional(),
+  routerBaseUrl: z.string().url().optional(),
 });
 
 // Review tool schema
@@ -126,7 +114,7 @@ export const HelpToolSchema = z.object({});
 
 export const ListSessionsToolSchema = z.object({});
 
-export type CodexToolArgs = z.infer<typeof CodexToolSchema>;
+export type ClaudeToolArgs = z.infer<typeof ClaudeToolSchema>;
 export type ReviewToolArgs = z.infer<typeof ReviewToolSchema>;
 export type PingToolArgs = z.infer<typeof PingToolSchema>;
 export type ListSessionsToolArgs = z.infer<typeof ListSessionsToolSchema>;
