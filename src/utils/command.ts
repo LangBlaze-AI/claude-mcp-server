@@ -85,7 +85,7 @@ export async function executeCommand(
       }
 
       // Accept exit code 0 or if we got stdout/stderr output
-      // Note: codex CLI writes most output to stderr, so we must check both
+      // Note: claude CLI writes output to stdout as JSON when --output-format json is used
       if (code === 0 || stdout || stderr) {
         if (code !== 0 && (stdout || stderr)) {
           console.error(
@@ -121,7 +121,7 @@ export async function executeCommand(
  * Calls onProgress callback with each chunk of output for real-time feedback.
  *
  * Note: Unlike executeCommand, this function treats stderr output as success
- * because tools like codex write their primary output to stderr. This is
+ * because some CLI tools write their primary output to stderr. This is
  * intentional for streaming use cases where we want to capture all output.
  */
 export async function executeCommandStreaming(
@@ -190,7 +190,7 @@ export async function executeCommandStreaming(
           stderr += chunk;
         }
       }
-      // Also send stderr as progress - codex outputs to stderr
+      // Also send stderr as progress for real-time feedback
       sendProgress(chunk.trim());
     });
 

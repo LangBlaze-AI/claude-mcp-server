@@ -17,7 +17,7 @@ import { handleError } from './errors.js';
 import { toolDefinitions } from './tools/definitions.js';
 import { toolHandlers } from './tools/handlers.js';
 
-export class CodexMcpServer {
+export class ClaudeMcpServer {
   private readonly server: Server;
   private readonly config: ServerConfig;
 
