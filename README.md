@@ -171,6 +171,7 @@ To set a fixed provider for all calls (no per-call override needed), configure t
 | `allowedTools` | string | Comma-separated tools to allow (e.g. `"Bash,Read,Write"`) |
 | `dangerouslySkipPermissions` | boolean | Skip permission prompts |
 | `routerBaseUrl` | string | Override `ANTHROPIC_BASE_URL` for this call (e.g. `http://localhost:3000`) |
+| `fallbackProviders` | array | Ordered list of fallback providers (max 5). Each entry: `{ model?, routerBaseUrl? }`. Retried sequentially if primary call fails. |
 
 ---
 
@@ -196,6 +197,11 @@ Use review with uncommitted true to review my local changes
 **Route to an alternative model:**
 ```
 Use claude with routerBaseUrl "http://localhost:3000" and model "deepseek/deepseek-coder-v2" to solve this algorithm
+```
+
+**Fallback to a secondary provider if primary fails:**
+```
+Use claude with routerBaseUrl "http://localhost:3000" and fallbackProviders [{"routerBaseUrl": "http://localhost:4000", "model": "deepseek/deepseek-coder-v2"}, {"model": "claude-haiku-4-5-20251001"}] to complete this task
 ```
 
 **Restrict tools for safe execution:**

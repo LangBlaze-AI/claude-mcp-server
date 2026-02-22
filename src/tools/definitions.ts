@@ -53,6 +53,25 @@ export const toolDefinitions: ToolDefinition[] = [
           description:
             'Override ANTHROPIC_BASE_URL for this call (e.g. for claude-code-router)',
         },
+        fallbackProviders: {
+          type: 'array',
+          maxItems: 5,
+          description:
+            'Ordered list of fallback providers to try if the primary call fails. Each entry can override model and/or routerBaseUrl.',
+          items: {
+            type: 'object',
+            properties: {
+              routerBaseUrl: {
+                type: 'string',
+                description: 'Override ANTHROPIC_BASE_URL for this fallback attempt',
+              },
+              model: {
+                type: 'string',
+                description: 'Model to use for this fallback attempt',
+              },
+            },
+          },
+        },
       },
       required: ['prompt'],
     },
