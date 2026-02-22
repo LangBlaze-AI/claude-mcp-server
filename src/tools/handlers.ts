@@ -7,6 +7,7 @@ import {
   type ClaudeToolArgs,
   type ReviewToolArgs,
   type PingToolArgs,
+  type ProviderEntry,
   ClaudeToolSchema,
   ReviewToolSchema,
   PingToolSchema,
@@ -52,6 +53,7 @@ export class ClaudeToolHandler {
         outputFormat,
         maxTurns,
         routerBaseUrl,
+        fallbackProviders,
       }: ClaudeToolArgs = ClaudeToolSchema.parse(args);
 
       let activeSessionId = sessionId;
@@ -128,34 +130,72 @@ export class ClaudeToolHandler {
       // Send initial progress notification
       await context.sendProgress('Starting Claude execution...', 0);
 
-      // Use streaming execution if progress is enabled
+      // Use streaming execution if progress is enabled (primary attempt only)
       const useStreaming = !!context.progressToken;
-      const envOverride = routerBaseUrl
-        ? { ANTHROPIC_BASE_URL: routerBaseUrl }
-        : undefined;
 
-      const result = useStreaming
-        ? await executeCommandStreaming('claude', cmdArgs, {
-            onProgress: (message) => {
-              // Send progress notification for each chunk of output
-              context.sendProgress(message);
-            },
-            envOverride,
-          })
-        : envOverride
-          ? await executeCommand('claude', cmdArgs, envOverride)
-          : await executeCommand('claude', cmdArgs);
+      // Build ordered list of provider attempts: primary first, then fallbacks
+      const fallbacks: ProviderEntry[] = fallbackProviders ?? [];
+      const attempts = [
+        { model: selectedModel, routerBaseUrl },
+        ...fallbacks.map((fb) => ({
+          model: fb.model ?? selectedModel,
+          routerBaseUrl: fb.routerBaseUrl ?? routerBaseUrl,
+        })),
+      ];
 
-      // Parse JSON output from claude --output-format json
-      let response: string;
+      let parsedResponse: string | undefined;
       let extractedSessionId: string | undefined;
-      try {
-        const parsed = JSON.parse(result.stdout);
-        response = parsed.result ?? result.stdout;
-        extractedSessionId = parsed.session_id;
-      } catch {
-        response = result.stdout || result.stderr || 'No output from Claude';
+      let usedFallbackIndex: number | undefined; // undefined = primary succeeded
+      const errors: string[] = [];
+
+      for (let i = 0; i < attempts.length; i++) {
+        const attempt = attempts[i];
+
+        // Patch --model arg for this attempt: find '--model' flag position and replace value
+        const patchedArgs = [...cmdArgs];
+        const modelIdx = patchedArgs.indexOf('--model');
+        if (modelIdx !== -1) {
+          patchedArgs[modelIdx + 1] = attempt.model;
+        }
+
+        try {
+          if (i === 0 && useStreaming) {
+            // Primary attempt: use streaming if progressToken present
+            const streamEnvOverride = attempt.routerBaseUrl
+              ? { ANTHROPIC_BASE_URL: attempt.routerBaseUrl }
+              : undefined;
+            const streamResult = await executeCommandStreaming('claude', patchedArgs, {
+              onProgress: (message) => { context.sendProgress(message); },
+              envOverride: streamEnvOverride,
+            });
+            const parsed = JSON.parse(streamResult.stdout); // let throw to trigger retry
+            parsedResponse = parsed.result ?? streamResult.stdout;
+            extractedSessionId = parsed.session_id;
+          } else {
+            const { parsedResponse: pr, extractedSessionId: esi } =
+              await this.attemptCall(patchedArgs, attempt.routerBaseUrl);
+            parsedResponse = pr;
+            extractedSessionId = esi;
+          }
+
+          if (i > 0) usedFallbackIndex = i - 1; // 0-indexed into fallbackProviders array
+          break; // success
+        } catch (err) {
+          errors.push(`Attempt ${i} (${attempt.model ?? 'default'}): ${err instanceof Error ? err.message : String(err)}`);
+          if (i === attempts.length - 1) {
+            // All attempts exhausted
+            throw new ToolExecutionError(
+              TOOLS.CLAUDE,
+              `All ${attempts.length} provider attempt(s) failed:\n${errors.join('\n')}`,
+              err
+            );
+          }
+          // else continue to next attempt
+        }
       }
+
+      // parsedResponse is guaranteed set because the loop throws if all attempts fail
+      const response = parsedResponse ?? '';
 
       // Store session ID from new conversations for future resume
       if (activeSessionId && !useResume && extractedSessionId) {
@@ -181,6 +221,7 @@ export class ClaudeToolHandler {
       const metadata: Record<string, unknown> = {
         ...(selectedModel && { model: selectedModel }),
         ...(activeSessionId && { sessionId: activeSessionId }),
+        ...(usedFallbackIndex !== undefined && { usedFallbackIndex }),
       };
 
       return {
@@ -209,6 +250,26 @@ export class ClaudeToolHandler {
         error
       );
     }
+  }
+
+  private async attemptCall(
+    cmdArgs: string[],
+    routerBaseUrl: string | undefined
+  ): Promise<{ result: Awaited<ReturnType<typeof executeCommand>>; parsedResponse: string; extractedSessionId?: string }> {
+    const envOverride = routerBaseUrl
+      ? { ANTHROPIC_BASE_URL: routerBaseUrl }
+      : undefined;
+
+    const result = envOverride
+      ? await executeCommand('claude', cmdArgs, envOverride)
+      : await executeCommand('claude', cmdArgs);
+
+    // Parse JSON output — throw on failure so caller can decide whether to retry
+    const parsed = JSON.parse(result.stdout); // intentionally let this throw
+    const parsedResponse: string = parsed.result ?? result.stdout;
+    const extractedSessionId: string | undefined = parsed.session_id;
+
+    return { result, parsedResponse, extractedSessionId };
   }
 
   private buildEnhancedPrompt(
