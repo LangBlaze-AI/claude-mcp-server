@@ -1,4 +1,4 @@
-import { CodexToolHandler, ReviewToolHandler } from '../tools/handlers.js';
+import { ClaudeToolHandler, ReviewToolHandler } from '../tools/handlers.js';
 import { InMemorySessionStorage } from '../session/storage.js';
 import { executeCommand } from '../utils/command.js';
 import { ToolExecutionError, ValidationError } from '../errors.js';
@@ -13,18 +13,18 @@ const mockedExecuteCommand = executeCommand as jest.MockedFunction<
 >;
 
 describe('Error Handling Scenarios', () => {
-  let handler: CodexToolHandler;
+  let handler: ClaudeToolHandler;
   let sessionStorage: InMemorySessionStorage;
 
   beforeEach(() => {
     sessionStorage = new InMemorySessionStorage();
-    handler = new CodexToolHandler(sessionStorage);
+    handler = new ClaudeToolHandler(sessionStorage);
     mockedExecuteCommand.mockClear();
   });
 
-  test('should handle codex CLI authentication errors', async () => {
+  test('should handle claude CLI authentication errors', async () => {
     mockedExecuteCommand.mockRejectedValue(
-      new Error('Authentication failed: Please run `codex login`')
+      new Error('Authentication failed: Please run `claude login`')
     );
 
     await expect(handler.execute({ prompt: 'Test prompt' })).rejects.toThrow(
@@ -32,9 +32,9 @@ describe('Error Handling Scenarios', () => {
     );
   });
 
-  test('should handle codex CLI not found errors', async () => {
+  test('should handle claude CLI not found errors', async () => {
     mockedExecuteCommand.mockRejectedValue(
-      new Error('command not found: codex')
+      new Error('command not found: claude')
     );
 
     await expect(handler.execute({ prompt: 'Test prompt' })).rejects.toThrow(
@@ -55,7 +55,7 @@ describe('Error Handling Scenarios', () => {
     ).rejects.toThrow(ToolExecutionError);
   });
 
-  test('should handle codex CLI timeout errors', async () => {
+  test('should handle claude CLI timeout errors', async () => {
     mockedExecuteCommand.mockRejectedValue(
       new Error('Timeout: Command took too long to execute')
     );
@@ -65,9 +65,9 @@ describe('Error Handling Scenarios', () => {
     ).rejects.toThrow(ToolExecutionError);
   });
 
-  test('should handle network errors during codex execution', async () => {
+  test('should handle network errors during claude execution', async () => {
     mockedExecuteCommand.mockRejectedValue(
-      new Error('Network error: Unable to reach OpenAI API')
+      new Error('Network error: Unable to reach Anthropic API')
     );
 
     await expect(handler.execute({ prompt: 'Test prompt' })).rejects.toThrow(
@@ -77,7 +77,10 @@ describe('Error Handling Scenarios', () => {
 
   test('should handle invalid session IDs gracefully', async () => {
     // Non-existent session ID should not crash
-    mockedExecuteCommand.mockResolvedValue({ stdout: 'Response', stderr: '' });
+    mockedExecuteCommand.mockResolvedValue({
+      stdout: JSON.stringify({ result: 'Response' }),
+      stderr: '',
+    });
 
     const result = await handler.execute({
       prompt: 'Test prompt',
@@ -120,7 +123,10 @@ describe('Error Handling Scenarios', () => {
       (session.turns as unknown) = null; // Corrupt the turns array
     }
 
-    mockedExecuteCommand.mockResolvedValue({ stdout: 'Response', stderr: '' });
+    mockedExecuteCommand.mockResolvedValue({
+      stdout: JSON.stringify({ result: 'Response' }),
+      stderr: '',
+    });
 
     // Should not crash, should handle gracefully
     const result = await handler.execute({
@@ -133,7 +139,7 @@ describe('Error Handling Scenarios', () => {
 
   test('should handle malformed resume conversation IDs', async () => {
     const sessionId = sessionStorage.createSession();
-    sessionStorage.setCodexConversationId(sessionId, 'invalid-conv-id-format');
+    sessionStorage.setClaudeSessionId(sessionId, 'invalid-conv-id-format');
 
     mockedExecuteCommand.mockRejectedValue(
       new Error('Invalid conversation ID format')
@@ -150,17 +156,21 @@ describe('Error Handling Scenarios', () => {
   test('should handle very long prompts', async () => {
     const longPrompt = 'A'.repeat(100000); // 100k character prompt
 
-    mockedExecuteCommand.mockResolvedValue({ stdout: 'Response', stderr: '' });
+    mockedExecuteCommand.mockResolvedValue({
+      stdout: JSON.stringify({ result: 'Response' }),
+      stderr: '',
+    });
 
     const result = await handler.execute({ prompt: longPrompt });
 
     expect(result.content[0].text).toBe('Response');
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
-      '--model',
-      'gpt-5.3-codex',
-      '--skip-git-repo-check',
+    expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+      '-p',
       longPrompt,
+      '--model',
+      'claude-sonnet-4-6',
+      '--output-format',
+      'json',
     ]);
   });
 });

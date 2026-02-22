@@ -1,4 +1,4 @@
-import { CodexToolHandler } from '../tools/handlers.js';
+import { ClaudeToolHandler } from '../tools/handlers.js';
 import { InMemorySessionStorage } from '../session/storage.js';
 import { executeCommand } from '../utils/command.js';
 
@@ -11,8 +11,8 @@ const mockedExecuteCommand = executeCommand as jest.MockedFunction<
   typeof executeCommand
 >;
 
-describe('Codex Resume Functionality', () => {
-  let handler: CodexToolHandler;
+describe('Claude Resume Functionality', () => {
+  let handler: ClaudeToolHandler;
   let sessionStorage: InMemorySessionStorage;
   let originalStructuredContent: string | undefined;
 
@@ -30,17 +30,16 @@ describe('Codex Resume Functionality', () => {
 
   beforeEach(() => {
     sessionStorage = new InMemorySessionStorage();
-    handler = new CodexToolHandler(sessionStorage);
+    handler = new ClaudeToolHandler(sessionStorage);
     mockedExecuteCommand.mockClear();
     process.env.STRUCTURED_CONTENT_ENABLED = '1';
-    delete process.env.CODEX_MCP_CALLBACK_URI;
   });
 
-  test('should use exec for new session without codex session ID', async () => {
+  test('should use claude -p for new session without claude session ID', async () => {
     const sessionId = sessionStorage.createSession();
     mockedExecuteCommand.mockResolvedValue({
-      stdout: 'Test response',
-      stderr: 'conversation id: abc-123-def',
+      stdout: JSON.stringify({ result: 'Test response', session_id: 'abc-123-def' }),
+      stderr: '',
     });
 
     await handler.execute({
@@ -48,20 +47,21 @@ describe('Codex Resume Functionality', () => {
       sessionId,
     });
 
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
-      '--model',
-      'gpt-5.3-codex',
-      '--skip-git-repo-check',
+    expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+      '-p',
       'First message',
+      '--model',
+      'claude-sonnet-4-6',
+      '--output-format',
+      'json',
     ]);
   });
 
-  test('should extract and store session ID', async () => {
+  test('should extract and store session ID from JSON stdout', async () => {
     const sessionId = sessionStorage.createSession();
     mockedExecuteCommand.mockResolvedValue({
-      stdout: 'Test response',
-      stderr: 'conversation id: abc-123-def',
+      stdout: JSON.stringify({ result: 'Test response', session_id: 'abc-123-def' }),
+      stderr: '',
     });
 
     await handler.execute({
@@ -69,80 +69,15 @@ describe('Codex Resume Functionality', () => {
       sessionId,
     });
 
-    expect(sessionStorage.getCodexConversationId(sessionId)).toBe(
-      'abc-123-def'
-    );
-  });
-
-  test('should surface threadId in response metadata when present', async () => {
-    mockedExecuteCommand.mockResolvedValue({
-      stdout: 'thread id: th_123',
-      stderr: '',
-    });
-
-    const result = await handler.execute({
-      prompt: 'Thread metadata check',
-    });
-
-    expect(result.content[0]._meta?.threadId).toBe('th_123');
-    expect(result.structuredContent?.threadId).toBe('th_123');
-  });
-
-  test('should surface threadId when stderr has output and stdout contains thread id', async () => {
-    mockedExecuteCommand.mockResolvedValue({
-      stdout: 'thread id: th_stdout_456',
-      stderr: 'warning: noisy stderr output',
-    });
-
-    const result = await handler.execute({
-      prompt: 'Thread metadata mixed output',
-    });
-
-    expect(result.content[0]._meta?.threadId).toBe('th_stdout_456');
-    expect(result.structuredContent?.threadId).toBe('th_stdout_456');
-  });
-
-  test('should surface threadId when stdout has noise and stderr contains thread id', async () => {
-    mockedExecuteCommand.mockResolvedValue({
-      stdout: 'log: stdout noise',
-      stderr: 'thread id: th_stderr_789',
-    });
-
-    const result = await handler.execute({
-      prompt: 'Thread metadata mixed output stderr',
-    });
-
-    expect(result.content[0]._meta?.threadId).toBe('th_stderr_789');
-    expect(result.structuredContent?.threadId).toBe('th_stderr_789');
-  });
-
-  test('should pass callback URI via environment when provided', async () => {
-    mockedExecuteCommand.mockResolvedValue({
-      stdout: 'Test response',
-      stderr: '',
-    });
-
-    await handler.execute({
-      prompt: 'Callback check',
-      callbackUri: 'http://localhost:1234/callback',
-    });
-
-    expect(mockedExecuteCommand).toHaveBeenCalledWith(
-      'codex',
-      expect.any(Array),
-      { CODEX_MCP_CALLBACK_URI: 'http://localhost:1234/callback' }
-    );
+    expect(sessionStorage.getClaudeSessionId(sessionId)).toBe('abc-123-def');
   });
 
   test('should use resume for subsequent messages in session', async () => {
     const sessionId = sessionStorage.createSession();
-    sessionStorage.setCodexConversationId(
-      sessionId,
-      'existing-codex-session-id'
-    );
+    sessionStorage.setClaudeSessionId(sessionId, 'existing-claude-session-id');
 
     mockedExecuteCommand.mockResolvedValue({
-      stdout: 'Resumed response',
+      stdout: JSON.stringify({ result: 'Resumed response' }),
       stderr: '',
     });
 
@@ -151,25 +86,25 @@ describe('Codex Resume Functionality', () => {
       sessionId,
     });
 
-    // Resume mode: all exec options must come BEFORE 'resume' subcommand
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
-      '--skip-git-repo-check',
-      '-c',
-      'model="gpt-5.3-codex"',
-      'resume',
-      'existing-codex-session-id',
+    expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+      '-p',
       'Continue the task',
+      '--resume',
+      'existing-claude-session-id',
+      '--model',
+      'claude-sonnet-4-6',
+      '--output-format',
+      'json',
     ]);
   });
 
   test('should reset session ID when session is reset', async () => {
     const sessionId = sessionStorage.createSession();
-    sessionStorage.setCodexConversationId(sessionId, 'old-session-id');
+    sessionStorage.setClaudeSessionId(sessionId, 'old-session-id');
 
     mockedExecuteCommand.mockResolvedValue({
-      stdout: 'Test response',
-      stderr: 'conversation id: new-session-id',
+      stdout: JSON.stringify({ result: 'Test response', session_id: 'new-session-id' }),
+      stderr: '',
     });
 
     await handler.execute({
@@ -178,20 +113,19 @@ describe('Codex Resume Functionality', () => {
       resetSession: true,
     });
 
-    // Should use exec (not resume) and get new session ID
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
-      '--model',
-      'gpt-5.3-codex',
-      '--skip-git-repo-check',
+    // Should use new session (not resume) and get new session ID
+    expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+      '-p',
       'Reset and start new',
+      '--model',
+      'claude-sonnet-4-6',
+      '--output-format',
+      'json',
     ]);
-    expect(sessionStorage.getCodexConversationId(sessionId)).toBe(
-      'new-session-id'
-    );
+    expect(sessionStorage.getClaudeSessionId(sessionId)).toBe('new-session-id');
   });
 
-  test('should fall back to manual context if no codex session ID', async () => {
+  test('should fall back to manual context if no claude session ID', async () => {
     const sessionId = sessionStorage.createSession();
 
     // Add some history
@@ -202,7 +136,7 @@ describe('Codex Resume Functionality', () => {
     });
 
     mockedExecuteCommand.mockResolvedValue({
-      stdout: 'Context-aware response',
+      stdout: JSON.stringify({ result: 'Context-aware response' }),
       stderr: '',
     });
 
@@ -211,10 +145,28 @@ describe('Codex Resume Functionality', () => {
       sessionId,
     });
 
-    // Should build enhanced prompt since no codex session ID
+    // Should build enhanced prompt since no claude session ID
     const call = mockedExecuteCommand.mock.calls[0];
-    const sentPrompt = call?.[1]?.[4]; // After exec, --model, gpt-5.3-codex, --skip-git-repo-check, prompt
+    const sentPrompt = call?.[1]?.[1]; // claude -p <prompt> --model ...
     expect(sentPrompt).toContain('Context:');
     expect(sentPrompt).toContain('Task: Follow up question');
+  });
+
+  test('should pass routerBaseUrl as ANTHROPIC_BASE_URL env override', async () => {
+    mockedExecuteCommand.mockResolvedValue({
+      stdout: JSON.stringify({ result: 'Test response' }),
+      stderr: '',
+    });
+
+    await handler.execute({
+      prompt: 'Router check',
+      routerBaseUrl: 'http://localhost:8080',
+    });
+
+    expect(mockedExecuteCommand).toHaveBeenCalledWith(
+      'claude',
+      expect.any(Array),
+      { ANTHROPIC_BASE_URL: 'http://localhost:8080' }
+    );
   });
 });

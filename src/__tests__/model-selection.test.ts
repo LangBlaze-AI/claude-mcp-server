@@ -1,6 +1,7 @@
-import { CodexToolHandler } from '../tools/handlers.js';
+import { ClaudeToolHandler } from '../tools/handlers.js';
 import { InMemorySessionStorage } from '../session/storage.js';
 import { executeCommand } from '../utils/command.js';
+import { AVAILABLE_CLAUDE_MODELS } from '../types.js';
 
 // Mock the command execution
 jest.mock('../utils/command.js', () => ({
@@ -11,8 +12,8 @@ const mockedExecuteCommand = executeCommand as jest.MockedFunction<
   typeof executeCommand
 >;
 
-describe('Model Selection and Reasoning Effort', () => {
-  let handler: CodexToolHandler;
+describe('Claude Model Selection', () => {
+  let handler: ClaudeToolHandler;
   let sessionStorage: InMemorySessionStorage;
   let originalStructuredContent: string | undefined;
 
@@ -30,74 +31,54 @@ describe('Model Selection and Reasoning Effort', () => {
 
   beforeEach(() => {
     sessionStorage = new InMemorySessionStorage();
-    handler = new CodexToolHandler(sessionStorage);
+    handler = new ClaudeToolHandler(sessionStorage);
     mockedExecuteCommand.mockClear();
     mockedExecuteCommand.mockResolvedValue({
-      stdout: 'Test response',
+      stdout: JSON.stringify({ result: 'Test response' }),
       stderr: '',
     });
     process.env.STRUCTURED_CONTENT_ENABLED = '1';
   });
 
-  test('should pass model parameter to codex CLI', async () => {
+  test('should use claude-sonnet-4-6 as default model', async () => {
     await handler.execute({
       prompt: 'Test prompt',
-      model: 'gpt-4',
     });
 
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
-      '--model',
-      'gpt-4',
-      '--skip-git-repo-check',
+    expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+      '-p',
       'Test prompt',
+      '--model',
+      'claude-sonnet-4-6',
+      '--output-format',
+      'json',
     ]);
   });
 
-  test('should pass reasoning effort to codex CLI', async () => {
+  test('should pass model parameter to claude CLI', async () => {
     await handler.execute({
-      prompt: 'Complex analysis',
-      reasoningEffort: 'high',
+      prompt: 'Test prompt',
+      model: 'claude-opus-4-6',
     });
 
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
+    expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+      '-p',
+      'Test prompt',
       '--model',
-      'gpt-5.3-codex',
-      '-c',
-      'model_reasoning_effort="high"',
-      '--skip-git-repo-check',
-      'Complex analysis',
-    ]);
-  });
-
-  test('should combine model and reasoning effort', async () => {
-    await handler.execute({
-      prompt: 'Advanced task',
-      model: 'gpt-4',
-      reasoningEffort: 'medium',
-    });
-
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
-      '--model',
-      'gpt-4',
-      '-c',
-      'model_reasoning_effort="medium"',
-      '--skip-git-repo-check',
-      'Advanced task',
+      'claude-opus-4-6',
+      '--output-format',
+      'json',
     ]);
   });
 
   test('should include model info in response metadata', async () => {
     const result = await handler.execute({
       prompt: 'Test prompt',
-      model: 'gpt-3.5-turbo',
-      reasoningEffort: 'low',
+      model: 'claude-haiku-4-5-20251001',
     });
 
-    expect(result.content[0]._meta?.model).toBe('gpt-3.5-turbo');
-    expect(result.structuredContent?.model).toBe('gpt-3.5-turbo');
+    expect(result.content[0]._meta?.model).toBe('claude-haiku-4-5-20251001');
+    expect(result.structuredContent?.model).toBe('claude-haiku-4-5-20251001');
   });
 
   test('should work with sessions and model selection', async () => {
@@ -106,72 +87,59 @@ describe('Model Selection and Reasoning Effort', () => {
     const result = await handler.execute({
       prompt: 'Session test',
       sessionId,
-      model: 'gpt-4',
+      model: 'claude-opus-4-6',
     });
 
-    expect(result.content[0]._meta?.model).toBe('gpt-4');
+    expect(result.content[0]._meta?.model).toBe('claude-opus-4-6');
     expect(result.content[0]._meta?.sessionId).toBe(sessionId);
-    expect(result.structuredContent?.model).toBe('gpt-4');
+    expect(result.structuredContent?.model).toBe('claude-opus-4-6');
     expect(result.structuredContent?.sessionId).toBe(sessionId);
   });
 
-  test('should validate reasoning effort enum', async () => {
-    await expect(
-      handler.execute({
-        prompt: 'Test',
-        reasoningEffort: 'invalid' as 'low',
-      })
-    ).rejects.toThrow();
+  test('should use CLAUDE_DEFAULT_MODEL environment variable when set', async () => {
+    const originalEnv = process.env.CLAUDE_DEFAULT_MODEL;
+    process.env.CLAUDE_DEFAULT_MODEL = 'claude-opus-4-6';
+
+    try {
+      await handler.execute({ prompt: 'Test with env var' });
+
+      expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+        '-p',
+        'Test with env var',
+        '--model',
+        'claude-opus-4-6',
+        '--output-format',
+        'json',
+      ]);
+    } finally {
+      if (originalEnv) {
+        process.env.CLAUDE_DEFAULT_MODEL = originalEnv;
+      } else {
+        delete process.env.CLAUDE_DEFAULT_MODEL;
+      }
+    }
   });
 
-  test('should pass minimal reasoning effort to CLI', async () => {
+  test('should have correct AVAILABLE_CLAUDE_MODELS list', () => {
+    expect(AVAILABLE_CLAUDE_MODELS).toContain('claude-sonnet-4-6');
+    expect(AVAILABLE_CLAUDE_MODELS).toContain('claude-opus-4-6');
+    expect(AVAILABLE_CLAUDE_MODELS).toContain('claude-haiku-4-5-20251001');
+    expect(AVAILABLE_CLAUDE_MODELS).toHaveLength(3);
+  });
+
+  test('should pass haiku model to CLI', async () => {
     await handler.execute({
       prompt: 'Quick task',
-      reasoningEffort: 'minimal',
+      model: 'claude-haiku-4-5-20251001',
     });
 
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
-      '--model',
-      'gpt-5.3-codex',
-      '-c',
-      'model_reasoning_effort="minimal"',
-      '--skip-git-repo-check',
+    expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+      '-p',
       'Quick task',
-    ]);
-  });
-
-  test('should pass none reasoning effort to CLI', async () => {
-    await handler.execute({
-      prompt: 'Simple task',
-      reasoningEffort: 'none',
-    });
-
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
       '--model',
-      'gpt-5.3-codex',
-      '-c',
-      'model_reasoning_effort="none"',
-      '--skip-git-repo-check',
-      'Simple task',
-    ]);
-  });
-
-  test('should pass xhigh reasoning effort to CLI', async () => {
-    await handler.execute({
-      prompt: 'Complex task',
-      reasoningEffort: 'xhigh',
-    });
-
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
-      '--model',
-      'gpt-5.3-codex',
-      '-c',
-      'model_reasoning_effort="xhigh"',
-      '--skip-git-repo-check',
-      'Complex task',
+      'claude-haiku-4-5-20251001',
+      '--output-format',
+      'json',
     ]);
   });
 });

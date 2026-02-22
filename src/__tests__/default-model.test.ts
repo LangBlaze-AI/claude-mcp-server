@@ -1,4 +1,4 @@
-import { CodexToolHandler } from '../tools/handlers.js';
+import { ClaudeToolHandler } from '../tools/handlers.js';
 import { InMemorySessionStorage } from '../session/storage.js';
 import { executeCommand } from '../utils/command.js';
 
@@ -12,7 +12,7 @@ const mockedExecuteCommand = executeCommand as jest.MockedFunction<
 >;
 
 describe('Default Model Configuration', () => {
-  let handler: CodexToolHandler;
+  let handler: ClaudeToolHandler;
   let sessionStorage: InMemorySessionStorage;
   let originalStructuredContent: string | undefined;
 
@@ -30,48 +30,48 @@ describe('Default Model Configuration', () => {
 
   beforeEach(() => {
     sessionStorage = new InMemorySessionStorage();
-    handler = new CodexToolHandler(sessionStorage);
+    handler = new ClaudeToolHandler(sessionStorage);
     mockedExecuteCommand.mockClear();
     mockedExecuteCommand.mockResolvedValue({
-      stdout: 'Test response',
+      stdout: JSON.stringify({ result: 'Test response' }),
       stderr: '',
     });
     process.env.STRUCTURED_CONTENT_ENABLED = '1';
-    delete process.env.CODEX_MCP_CALLBACK_URI;
   });
 
-  test('should use gpt-5.3-codex as default model when no model specified', async () => {
+  test('should use claude-sonnet-4-6 as default model when no model specified', async () => {
     await handler.execute({ prompt: 'Test prompt' });
 
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
-      '--model',
-      'gpt-5.3-codex',
-      '--skip-git-repo-check',
+    expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+      '-p',
       'Test prompt',
+      '--model',
+      'claude-sonnet-4-6',
+      '--output-format',
+      'json',
     ]);
   });
 
   test('should include default model in response metadata', async () => {
     const result = await handler.execute({ prompt: 'Test prompt' });
 
-    expect(result.content[0]._meta?.model).toBe('gpt-5.3-codex');
-    expect(result.structuredContent?.model).toBe('gpt-5.3-codex');
-    expect(result._meta?.callbackUri).toBeUndefined();
+    expect(result.content[0]._meta?.model).toBe('claude-sonnet-4-6');
+    expect(result.structuredContent?.model).toBe('claude-sonnet-4-6');
   });
 
   test('should override default model when explicit model provided', async () => {
     await handler.execute({
       prompt: 'Test prompt',
-      model: 'gpt-4',
+      model: 'claude-opus-4-6',
     });
 
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
-      '--model',
-      'gpt-4',
-      '--skip-git-repo-check',
+    expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+      '-p',
       'Test prompt',
+      '--model',
+      'claude-opus-4-6',
+      '--output-format',
+      'json',
     ]);
   });
 
@@ -83,98 +83,84 @@ describe('Default Model Configuration', () => {
       sessionId,
     });
 
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
-      '--model',
-      'gpt-5.3-codex',
-      '--skip-git-repo-check',
+    expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+      '-p',
       'Test prompt',
+      '--model',
+      'claude-sonnet-4-6',
+      '--output-format',
+      'json',
     ]);
   });
 
   test('should use default model with resume functionality', async () => {
     const sessionId = sessionStorage.createSession();
-    sessionStorage.setCodexConversationId(sessionId, 'existing-conv-id');
+    sessionStorage.setClaudeSessionId(sessionId, 'existing-conv-id');
 
     await handler.execute({
       prompt: 'Resume with default model',
       sessionId,
     });
 
-    // Resume mode: all exec options must come BEFORE 'resume' subcommand
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
-      '--skip-git-repo-check',
-      '-c',
-      'model="gpt-5.3-codex"',
-      'resume',
-      'existing-conv-id',
+    expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+      '-p',
       'Resume with default model',
-    ]);
-  });
-
-  test('should combine default model with reasoning effort', async () => {
-    await handler.execute({
-      prompt: 'Complex task',
-      reasoningEffort: 'high',
-    });
-
-    expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-      'exec',
+      '--resume',
+      'existing-conv-id',
       '--model',
-      'gpt-5.3-codex',
-      '-c',
-      'model_reasoning_effort="high"',
-      '--skip-git-repo-check',
-      'Complex task',
+      'claude-sonnet-4-6',
+      '--output-format',
+      'json',
     ]);
   });
 
-  test('should use CODEX_DEFAULT_MODEL environment variable when set', async () => {
-    const originalEnv = process.env.CODEX_DEFAULT_MODEL;
-    process.env.CODEX_DEFAULT_MODEL = 'gpt-4';
+  test('should use CLAUDE_DEFAULT_MODEL environment variable when set', async () => {
+    const originalEnv = process.env.CLAUDE_DEFAULT_MODEL;
+    process.env.CLAUDE_DEFAULT_MODEL = 'claude-opus-4-6';
 
     try {
       await handler.execute({ prompt: 'Test with env var' });
 
-      expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-        'exec',
-        '--model',
-        'gpt-4',
-        '--skip-git-repo-check',
+      expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+        '-p',
         'Test with env var',
+        '--model',
+        'claude-opus-4-6',
+        '--output-format',
+        'json',
       ]);
     } finally {
       if (originalEnv) {
-        process.env.CODEX_DEFAULT_MODEL = originalEnv;
+        process.env.CLAUDE_DEFAULT_MODEL = originalEnv;
       } else {
-        delete process.env.CODEX_DEFAULT_MODEL;
+        delete process.env.CLAUDE_DEFAULT_MODEL;
       }
     }
   });
 
   test('should prioritize explicit model over environment variable', async () => {
-    const originalEnv = process.env.CODEX_DEFAULT_MODEL;
-    process.env.CODEX_DEFAULT_MODEL = 'gpt-4';
+    const originalEnv = process.env.CLAUDE_DEFAULT_MODEL;
+    process.env.CLAUDE_DEFAULT_MODEL = 'claude-opus-4-6';
 
     try {
       await handler.execute({
         prompt: 'Test priority',
-        model: 'gpt-3.5-turbo',
+        model: 'claude-haiku-4-5-20251001',
       });
 
-      expect(mockedExecuteCommand).toHaveBeenCalledWith('codex', [
-        'exec',
-        '--model',
-        'gpt-3.5-turbo',
-        '--skip-git-repo-check',
+      expect(mockedExecuteCommand).toHaveBeenCalledWith('claude', [
+        '-p',
         'Test priority',
+        '--model',
+        'claude-haiku-4-5-20251001',
+        '--output-format',
+        'json',
       ]);
     } finally {
       if (originalEnv) {
-        process.env.CODEX_DEFAULT_MODEL = originalEnv;
+        process.env.CLAUDE_DEFAULT_MODEL = originalEnv;
       } else {
-        delete process.env.CODEX_DEFAULT_MODEL;
+        delete process.env.CLAUDE_DEFAULT_MODEL;
       }
     }
   });

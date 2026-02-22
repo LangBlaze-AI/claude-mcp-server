@@ -1,4 +1,4 @@
-import { CodexToolHandler } from '../tools/handlers.js';
+import { ClaudeToolHandler } from '../tools/handlers.js';
 import { InMemorySessionStorage } from '../session/storage.js';
 import { executeCommand } from '../utils/command.js';
 
@@ -12,7 +12,7 @@ const mockedExecuteCommand = executeCommand as jest.MockedFunction<
 >;
 
 describe('Context Building Analysis', () => {
-  let handler: CodexToolHandler;
+  let handler: ClaudeToolHandler;
   let sessionStorage: InMemorySessionStorage;
   let originalStructuredContent: string | undefined;
 
@@ -30,10 +30,10 @@ describe('Context Building Analysis', () => {
 
   beforeEach(() => {
     sessionStorage = new InMemorySessionStorage();
-    handler = new CodexToolHandler(sessionStorage);
+    handler = new ClaudeToolHandler(sessionStorage);
     mockedExecuteCommand.mockClear();
     mockedExecuteCommand.mockResolvedValue({
-      stdout: 'Test response',
+      stdout: JSON.stringify({ result: 'Test response' }),
       stderr: '',
     });
     process.env.STRUCTURED_CONTENT_ENABLED = '1';
@@ -59,9 +59,9 @@ describe('Context Building Analysis', () => {
     // Execute with context
     await handler.execute({ prompt: 'Make it more efficient', sessionId });
 
-    // Check what prompt was sent to Codex - should be enhanced but not conversational
+    // Check what prompt was sent to Claude - should be enhanced but not conversational
     const call = mockedExecuteCommand.mock.calls[0];
-    const sentPrompt = call?.[1]?.[4]; // After exec, --model, gpt-5.3-codex, --skip-git-repo-check, prompt
+    const sentPrompt = call?.[1]?.[1]; // claude -p <prompt> --model ...
     expect(sentPrompt).toContain('Previous code context:');
     expect(sentPrompt).toContain('Task: Make it more efficient');
     expect(sentPrompt).not.toContain('Previous: What is recursion?'); // No conversational format

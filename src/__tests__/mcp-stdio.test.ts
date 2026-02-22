@@ -19,13 +19,11 @@ async function ensureBuild(distPath: string): Promise<void> {
   await execAsync('npm run build');
 }
 
-function createCodexStub(): string {
-  const stubDir = mkdtempSync(path.join(tmpdir(), 'codex-mcp-test-'));
-  const stubPath = path.join(stubDir, 'codex');
+function createClaudeStub(): string {
+  const stubDir = mkdtempSync(path.join(tmpdir(), 'claude-mcp-test-'));
+  const stubPath = path.join(stubDir, 'claude');
   const stubScript = `#!/bin/sh
-printf "ok\n"
-printf "thread id: th_stub_123\n" 1>&2
-printf "session id: sess_stub_123\n" 1>&2
+printf '{"result":"ok","session_id":"sess_stub_123"}\n'
 exit 0
 `;
   writeFileSync(stubPath, stubScript, { mode: 0o755 });
@@ -62,13 +60,12 @@ describe('MCP stdio integration', () => {
   beforeAll(async () => {
     const distPath = path.join(process.cwd(), 'dist', 'index.js');
     await ensureBuild(distPath);
-    stubDir = createCodexStub();
+    stubDir = createClaudeStub();
 
     server = spawn(process.execPath, [distPath], {
       env: {
         ...process.env,
         PATH: `${stubDir}${path.delimiter}${process.env.PATH}`,
-        CODEX_MCP_CALLBACK_URI: 'http://localhost/callback',
         STRUCTURED_CONTENT_ENABLED: '1',
       },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -129,29 +126,27 @@ describe('MCP stdio integration', () => {
     const listParse = ListToolsResultSchema.safeParse(listResponse);
     expect(listParse.success).toBe(true);
 
-    const codexTool = listResponse.tools.find((tool) => tool.name === 'codex');
-    expect(codexTool?.outputSchema?.properties).toEqual({
-      threadId: { type: 'string' },
+    const claudeTool = listResponse.tools.find((tool) => tool.name === 'claude');
+    expect(claudeTool?.outputSchema?.properties).toEqual({
+      sessionId: { type: 'string' },
     });
 
     const callResponse = (await sendRequest({
       jsonrpc: JSONRPC_VERSION,
       id: 2,
       method: 'tools/call',
-      params: { name: 'codex', arguments: { prompt: 'Test prompt' } },
+      params: { name: 'claude', arguments: { prompt: 'Test prompt' } },
     })) as {
       content: Array<{
         type: string;
         text: string;
-        _meta?: { threadId?: string };
+        _meta?: { sessionId?: string };
       }>;
-      structuredContent?: { threadId?: string };
-      _meta?: { callbackUri?: string };
+      structuredContent?: { sessionId?: string };
     };
 
     const callParse = CallToolResultSchema.safeParse(callResponse);
     expect(callParse.success).toBe(true);
-    expect(callResponse.content[0]._meta?.threadId).toBe('th_stub_123');
-    expect(callResponse.structuredContent?.threadId).toBe('th_stub_123');
+    expect(callResponse.structuredContent?.sessionId).toBe('sess_stub_123');
   });
 });
